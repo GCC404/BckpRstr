@@ -21,7 +21,7 @@ int main(int argc, char* argv[]) {
 		return -1;
 	}
 
-	int dt=atoi(argv[3]);
+	int dt=atoi(argv[3]), oldnumfiles=0;
 
 	//Used for reading time
 	struct tm * timeinfo;
@@ -31,9 +31,9 @@ int main(int argc, char* argv[]) {
 	bckpinfopath[sizeof(bckpinfopath)-1]=0;
 	sprintf(bckpinfopath,"%s//%s",argv[2],"__bckpinfo__");
 
-	FILE * newbckpinfo, * oldbckpinfo;
+	FILE * bckpinfo;
 
-	if( (newbckpinfo=fopen(bckpinfopath,"w")) == NULL) {
+	if( (bckpinfo=fopen(bckpinfopath,"w")) == NULL) {
 		perror("Couldn't open __bckpinfo__ for writting");
 		return -1;
 	}
@@ -69,7 +69,9 @@ int main(int argc, char* argv[]) {
 			rawtime=stat_entry.st_mtime;
 			timeinfo=localtime(&rawtime);
 			sprintf(entry,"%s\n%s", dentry->d_name, asctime(timeinfo));
-			fputs(entry,newbckpinfo);
+			fputs(entry,bckpinfo);
+
+			oldnumfiles++;
 
 			//Launches a different process to copy the file to target folder
 			if((pid=fork()) < 0) {
@@ -80,11 +82,13 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	fclose(newbckpinfo);
+	fclose(bckpinfo);
 
-	int s=dt;
+	int s=dt, madecopy=0, newnumfiles=0;
 	char newfolder[sizeof(argv[2])+MAXDATESIZE];
 	newfolder[sizeof(newfolder)-1]=0;
+
+	time_t foldertime;
 
 	while(1) {
 
@@ -94,26 +98,25 @@ int main(int argc, char* argv[]) {
 		//Creates a new folder in the target directory with the current time as name
 		time(&rawtime);
 		timeinfo=localtime(&rawtime);
-		sprintf(newfolder,"%s//%d_%d_%d_%d_%d_%d",argv[2],1900+timeinfo->tm_year, 1+timeinfo->tm_mon, timeinfo->tm_mday, timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
-		printf("%s",newfolder);
+		sprintf(newfolder,"%s/%d_%d_%d_%d_%d_%d",argv[2],1900+timeinfo->tm_year, 1+timeinfo->tm_mon, timeinfo->tm_mday, timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
 
 		if(mkdir(newfolder,0770)<0) {
 			perror("Couldn't create folder.");
 			return -1;
 		}
 
-		if( (oldbckpinfo=fopen(bckpinfopath,"r")) == NULL) {
-			perror("Couldn't open __bckpinfo__ for reading");
-			return -1;
-		}
+		time(&foldertime);
 
 		//Alters path to read in the newly created folder
-		sprintf(bckpinfopath,"%s//%s",newfolder,"__newbckpinfo__");
+		sprintf(bckpinfopath,"%s//%s",newfolder,"__bckpinfo__");
+		printf("bckpinfopath %s\n",bckpinfopath);
 
-		if( (newbckpinfo=fopen(bckpinfopath,"w")) == NULL) {
+		if( (bckpinfo=fopen(bckpinfopath,"w")) == NULL) {
 			perror("Couldn't open __bckpinfo__ for writting");
 			return -1;
 		}
+
+		sprintf(newfolder,"%s/%d_%d_%d_%d_%d_%d",argv[2],1900+timeinfo->tm_year, 1+timeinfo->tm_mon, timeinfo->tm_mday, timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
 
 		//Reads monitored directory, searching for regular files
 		rewinddir(monitoreddir);
@@ -125,28 +128,35 @@ int main(int argc, char* argv[]) {
 				rawtime=stat_entry.st_mtime;
 				timeinfo=localtime(&rawtime);
 				sprintf(entry,"%s\n%s", dentry->d_name, asctime(timeinfo));
-				fputs(entry,newbckpinfo);
+				fputs(entry,bckpinfo);
+				newnumfiles++;
 
-				/*
-				 * Inserir aqui cadeia de decisão
-				 * para ver se ficheiro foi modificado ou não
-				 *
-				 * __bckpinfo__ a ser criado em newbckpinfo, o último criado está
-				 * em oldbckpinfo aberto para leitura
-				 */
-
-
-				//Launches a different process to copy the file to target folder
-				if((pid=fork()) < 0) {
-					perror("Fork error.\n");
-					return -1;
-				} else if(pid==0) execlp("cp","cp",dentry->d_name,argv[2],NULL);
-
+				if(rawtime>=foldertime-dt) {
+					madecopy=1;
+					//Launches a different process to copy the file to target folder
+					if((pid=fork()) < 0) {
+						perror("Fork error.\n");
+						return -1;
+					} else if(pid==0) execlp("cp","cp",dentry->d_name,newfolder,NULL);
+				}
 			}
 		}
 
-		fclose(newbckpinfo);
+		fclose(bckpinfo);
 
+		//Checks if changes were made,
+		//if not, deletes the folder
+		if(!(newnumfiles<oldnumfiles || madecopy)) {
+			printf("Apagar\n");
+			if((pid=fork()) < 0) {
+				perror("Fork error.\n");
+				return -1;
+			} else if(pid==0) execlp("rm","rm","-rf",newfolder,NULL);
+		}
+
+		oldnumfiles=newnumfiles;
+		newnumfiles=0;
+		madecopy=0;
 		s=dt;
 	}
 
