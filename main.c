@@ -12,18 +12,17 @@
 
 #define MAXDATESIZE 20    //yyyy_mm_dd_hh_mm_ss
 #define MAXLINELENGTH 302 //256 max. folder name + 24 for date + 1 \0
-#define newbckpinfoLENGTH 12
+#define bckpinfoLENGTH 12
 
-static int copying=0;
+static int unfinishedChilds=0;
 
 void sigchld_handler(int coise) {
-	printf("Copy ended.\n");
-	copying--;
+	unfinishedChilds--;
 }
 
 void sigusr1_handler(int coise) {
-	while(copying) {
-		printf("Still copying.\n");
+	while(unfinishedChilds) {
+		printf("%d processes still in course.\n",unfinishedChilds);
 		sleep(2);
 	}
 
@@ -39,6 +38,7 @@ int main(int argc, char* argv[]) {
 
 	int dt=atoi(argv[3]), oldnumfiles=0;
 
+	//Installs signal handlers
 	struct sigaction action;
 	action.sa_handler = sigchld_handler;
 	sigemptyset(&action.sa_mask);
@@ -51,7 +51,9 @@ int main(int argc, char* argv[]) {
 	struct tm * timeinfo;
 	time_t rawtime;
 
-	char bckpinfopath[sizeof(argv[2])+newbckpinfoLENGTH+MAXDATESIZE+2+1];
+	//Stores target path of the several
+	//__bckpinfo__, changes with time
+	char bckpinfopath[sizeof(argv[2])+bckpinfoLENGTH+MAXDATESIZE+2+1];
 	bckpinfopath[sizeof(bckpinfopath)-1]=0;
 	sprintf(bckpinfopath,"%s//%s",argv[2],"__bckpinfo__");
 
@@ -62,6 +64,7 @@ int main(int argc, char* argv[]) {
 		return -1;
 	}
 
+	//User for reading folder
 	DIR *monitoreddir;
 	struct dirent *dentry;
 	struct stat stat_entry;
@@ -89,7 +92,7 @@ int main(int argc, char* argv[]) {
 			fputs(entry,bckpinfo);
 
 			oldnumfiles++;
-			copying++;
+			unfinishedChilds++;
 
 			//Launches a different process to copy the file to target folder
 			if((pid=fork()) < 0) {
@@ -109,7 +112,7 @@ int main(int argc, char* argv[]) {
 	time_t foldertime;
 
 	while(1) {
-
+		//Sleeps for dt time
 		while(s>0)
 			s=sleep(s);
 
@@ -123,8 +126,6 @@ int main(int argc, char* argv[]) {
 			return -1;
 		}
 
-		time(&foldertime);
-
 		//Alters path to read in the newly created folder
 		sprintf(bckpinfopath,"%s//%s",newfolder,"__bckpinfo__");
 		printf("bckpinfopath %s\n",bckpinfopath);
@@ -136,6 +137,7 @@ int main(int argc, char* argv[]) {
 
 		sprintf(newfolder,"%s/%d_%d_%d_%d_%d_%d",argv[2],1900+timeinfo->tm_year, 1+timeinfo->tm_mon, timeinfo->tm_mday, timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
 
+		time(&foldertime);
 		//Reads monitored directory, searching for regular files
 		rewinddir(monitoreddir);
 		while ((dentry = readdir(monitoreddir)) != NULL) {
@@ -149,9 +151,12 @@ int main(int argc, char* argv[]) {
 				fputs(entry,bckpinfo);
 				newnumfiles++;
 
+				//If file was changed since the last
+				//check, copies it
 				if(rawtime>=foldertime-dt) {
-					copying++;
+					unfinishedChilds++;
 					madecopy=1;
+
 					//Launches a different process to copy the file to target folder
 					if((pid=fork()) < 0) {
 						perror("Fork error.\n");
@@ -166,6 +171,7 @@ int main(int argc, char* argv[]) {
 		//Checks if changes were made,
 		//if not, deletes the folder
 		if(!(newnumfiles<oldnumfiles || madecopy)) {
+			unfinishedChilds++;
 			if((pid=fork()) < 0) {
 				perror("Fork error.\n");
 				return -1;
