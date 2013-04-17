@@ -14,6 +14,22 @@
 #define MAXLINELENGTH 302 //256 max. folder name + 24 for date + 1 \0
 #define newbckpinfoLENGTH 12
 
+static int copying=0;
+
+void sigchld_handler(int coise) {
+	printf("Copy ended.\n");
+	copying--;
+}
+
+void sigusr1_handler(int coise) {
+	while(copying) {
+		printf("Still copying.\n");
+		sleep(2);
+	}
+
+	exit(0);
+}
+
 int main(int argc, char* argv[]) {
 
 	if (argc != 4) {
@@ -22,6 +38,14 @@ int main(int argc, char* argv[]) {
 	}
 
 	int dt=atoi(argv[3]), oldnumfiles=0;
+
+	struct sigaction action;
+	action.sa_handler = sigchld_handler;
+	sigemptyset(&action.sa_mask);
+	action.sa_flags = 0;
+	sigaction(SIGCHLD,&action,NULL);
+	action.sa_handler = sigusr1_handler;
+	sigaction(SIGUSR1,&action,NULL);
 
 	//Used for reading time
 	struct tm * timeinfo;
@@ -37,13 +61,6 @@ int main(int argc, char* argv[]) {
 		perror("Couldn't open __bckpinfo__ for writting");
 		return -1;
 	}
-
-	//Blocks SIGCHLD, in order to allow uninterrupted sleep()
-	sigset_t signmask;
-	sigemptyset(&signmask);
-	sigaddset(&signmask,SIGCHLD);
-	sigprocmask(SIG_SETMASK,&signmask,NULL);
-
 
 	DIR *monitoreddir;
 	struct dirent *dentry;
@@ -72,6 +89,7 @@ int main(int argc, char* argv[]) {
 			fputs(entry,bckpinfo);
 
 			oldnumfiles++;
+			copying++;
 
 			//Launches a different process to copy the file to target folder
 			if((pid=fork()) < 0) {
@@ -132,6 +150,7 @@ int main(int argc, char* argv[]) {
 				newnumfiles++;
 
 				if(rawtime>=foldertime-dt) {
+					copying++;
 					madecopy=1;
 					//Launches a different process to copy the file to target folder
 					if((pid=fork()) < 0) {
@@ -147,7 +166,6 @@ int main(int argc, char* argv[]) {
 		//Checks if changes were made,
 		//if not, deletes the folder
 		if(!(newnumfiles<oldnumfiles || madecopy)) {
-			printf("Apagar\n");
 			if((pid=fork()) < 0) {
 				perror("Fork error.\n");
 				return -1;
