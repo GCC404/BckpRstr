@@ -97,6 +97,20 @@ int checkifexists(const char* filename, const char* argv2,const struct tm *timei
 	return 0;
 }
 
+//Checks if changes were made,
+//if not, deletes the folder
+void verifyFolder(const int newnumfiles, const int oldnumfiles, const int madecopy, const char * newfolder) {
+	pid_t pid;
+
+	if(!(newnumfiles<oldnumfiles || madecopy)) {
+		unfinishedChilds++;
+		if((pid=fork()) < 0) {
+			perror("Fork error.\n");
+			exit(-1);
+		} else if(pid==0) execlp("rm","rm","-rf",newfolder,NULL);
+	}
+}
+
 int main(int argc, char* argv[]) {
 
 	if(checkArguments(argc,argv[0],argv[3])!=0)
@@ -104,7 +118,7 @@ int main(int argc, char* argv[]) {
 
 	int dt=atoi(argv[3]), oldnumfiles=0;
 
-	if(dt<3) {
+	if(dt<1) {
 		write(STDERR_FILENO,"Please choose a bigger dt\n",27);
 		return -1;
 	}
@@ -158,7 +172,7 @@ int main(int argc, char* argv[]) {
 			//Writes filename and last modification date to __newbckpinfo__
 			rawtime=stat_entry.st_mtime;
 			timeinfo=localtime(&rawtime);
-			sprintf(entry,"%s\n%s", dentry->d_name, asctime(timeinfo));
+			sprintf(entry,"%s\n0\n", dentry->d_name);
 			fputs(entry,bckpinfo);
 
 			oldnumfiles++;
@@ -218,31 +232,35 @@ int main(int argc, char* argv[]) {
 			if (S_ISREG(stat_entry.st_mode)) {
 
 				//Writes filename and last modification date to __bckpinfo__
-
+				newnumfiles++;
 				rawtime=stat_entry.st_mtime;
 				time(&current);
 
-				//Gets late modification path
+				//Calculates where the latest version
+				//of this file should be
 				dif=calcdif(rawtime,initime,dt);
 				timeinfo=localtime(&dif);
 
 				//Sometime there can be an off-by-one error,
-				//this should prevent it
-				if(dif!=initime && dif!=current) {
-					if(!checkifexists(dentry->d_name,argv[2],timeinfo)) {
-						dif++;
-						timeinfo=localtime(&dif);
+				//this should prevent it by veryfind if the
+				//file exists on the folder were it's
+				//expected to, otherwise, it's in the next
+				if(dif!=initime) {
+					if(dif!=current) {
+						if(!checkifexists(dentry->d_name,argv[2],timeinfo)) {
+							dif++;
+							timeinfo=localtime(&dif);
+						}
 					}
-				}
+					sprintf(entry,"%s\n%d_%d_%d_%d_%d_%d\n", dentry->d_name,1900+timeinfo->tm_year, 1+timeinfo->tm_mon, timeinfo->tm_mday, timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
+				} else sprintf(entry,"%s\n0\n", dentry->d_name); //if the file hasn't changed since the last backup,
+																 //writes 0 instead of the folder name
 
-				sprintf(entry,"%s\n%d_%d_%d_%d_%d_%d\n", dentry->d_name,1900+timeinfo->tm_year, 1+timeinfo->tm_mon, timeinfo->tm_mday, timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
 				fputs(entry,bckpinfo);
-				newnumfiles++;
-
 
 				//If file was changed since the last
 				//check, copies it
-				if(rawtime>=foldertime-dt) {
+				if(rawtime>foldertime-dt) {
 					unfinishedChilds++;
 					madecopy=1;
 
@@ -257,15 +275,7 @@ int main(int argc, char* argv[]) {
 
 		fclose(bckpinfo);
 
-		//Checks if changes were made,
-		//if not, deletes the folder
-		if(!(newnumfiles<oldnumfiles || madecopy)) {
-			unfinishedChilds++;
-			if((pid=fork()) < 0) {
-				perror("Fork error.\n");
-				return -1;
-			} else if(pid==0) execlp("rm","rm","-rf",newfolder,NULL);
-		}
+		verifyFolder(newnumfiles,oldnumfiles,madecopy,newfolder);
 
 		oldnumfiles=newnumfiles;
 		newnumfiles=0;
