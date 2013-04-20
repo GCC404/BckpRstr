@@ -101,7 +101,6 @@ int checkifexists(const char* filename, const char* argv2,const struct tm *timei
 //if not, deletes the folder
 void verifyFolder(const int newnumfiles, const int oldnumfiles, const int madecopy, const char * newfolder) {
 	pid_t pid;
-
 	if(!(newnumfiles<oldnumfiles || madecopy)) {
 		unfinishedChilds++;
 		if((pid=fork()) < 0) {
@@ -134,8 +133,7 @@ int main(int argc, char* argv[]) {
 
 	//Stores target path of the several
 	//__bckpinfo__, changes with time
-	char bckpinfopath[sizeof(argv[2])+bckpinfoLENGTH+MAXDATESIZE+2+1];
-	bckpinfopath[sizeof(bckpinfopath)-1]=0;
+	char bckpinfopath[strlen(argv[2])+bckpinfoLENGTH+MAXDATESIZE+3];
 	sprintf(bckpinfopath,"%s//%s",argv[2],"__bckpinfo__");
 
 	FILE * bckpinfo;
@@ -162,7 +160,7 @@ int main(int argc, char* argv[]) {
 
 	chdir(argv[1]);
 
-	//Reads monitored directory, searching for regular files
+	//Makes a full backup
 	while ((dentry = readdir(monitoreddir)) != NULL) {
 		stat(dentry->d_name, &stat_entry);
 		if (S_ISREG(stat_entry.st_mode)) {
@@ -191,12 +189,13 @@ int main(int argc, char* argv[]) {
 
 	int s=dt, madecopy=0, newnumfiles=0;
 	char newfolder[sizeof(argv[2])+MAXDATESIZE];
-	newfolder[sizeof(newfolder)-1]=0;
 
 	time_t dif=0, current;
 
 	time(&initime);
 
+	//Makes an incremental backup from
+	//dt to dt time
 	while(1) {
 		//Sleeps for dt time
 		while(s>0)
@@ -215,14 +214,13 @@ int main(int argc, char* argv[]) {
 		}
 
 		//Alters path to read in the newly created folder
-		sprintf(bckpinfopath,"%s//%s",newfolder,"__bckpinfo__");
+		strcpy(bckpinfopath,newfolder);
+		strcat(bckpinfopath,"/__bckpinfo__");
 
 		if( (bckpinfo=fopen(bckpinfopath,"w")) == NULL) {
-			perror("Couldn't open __bckpinfo__ for writting");
+			perror(bckpinfopath);
 			return -1;
 		}
-
-		sprintf(newfolder,"%s/%d_%d_%d_%d_%d_%d",argv[2],1900+timeinfo->tm_year, 1+timeinfo->tm_mon, timeinfo->tm_mday, timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
 
 		time(&foldertime);
 		//Reads monitored directory, searching for regular files
@@ -257,10 +255,9 @@ int main(int argc, char* argv[]) {
 																 //writes 0 instead of the folder name
 
 				fputs(entry,bckpinfo);
-
 				//If file was changed since the last
 				//check, copies it
-				if(rawtime>foldertime-dt) {
+				if(rawtime-foldertime+dt==0) {
 					unfinishedChilds++;
 					madecopy=1;
 
