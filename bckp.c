@@ -101,7 +101,7 @@ int checkifexists(const char* filename, const char* argv2,const struct tm *timei
 //if not, deletes the folder
 void verifyFolder(const int newnumfiles, const int oldnumfiles, const int madecopy, const char * newfolder) {
 	pid_t pid;
-	if(!(newnumfiles<oldnumfiles || madecopy)) {
+	if(!(newnumfiles>oldnumfiles || madecopy)) {
 		unfinishedChilds++;
 		if((pid=fork()) < 0) {
 			perror("Fork error.\n");
@@ -257,7 +257,7 @@ int main(int argc, char* argv[]) {
 				fputs(entry,bckpinfo);
 				//If file was changed since the last
 				//check, copies it
-				if(rawtime-foldertime+dt==0) {
+				if(rawtime-foldertime+dt>=0) {
 					unfinishedChilds++;
 					madecopy=1;
 
